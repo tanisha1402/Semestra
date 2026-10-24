@@ -57,7 +57,12 @@ export default function App() {
       setPending(out.rows); setNote(`Read with ${out.model}. Check every row before adding it.`)
     } catch (e) { setExErr(e instanceof Error ? e.message : 'Extraction failed.'); setNote('') } finally { setBusy(false) }
   }
-  const confirm = () => { if (!pending) return; update((s) => ({ ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...pending] })); setPending(null); setNote('') }
+  const sig = (r: ClassRow) => [r.course, r.section, r.day, r.start, r.end].map((x) => x.trim().toUpperCase()).join('|')
+  const confirm = () => {
+    if (!pending) return
+    update((s) => { const have = new Set((s.sample ? [] : s.rows).map(sig)); const fresh = pending.filter((r) => !have.has(sig(r))); return { ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...fresh] } })
+    setPending(null); setNote('')
+  }
 
   const addRetake = () => {
     const c = draft.trim().toUpperCase()
@@ -86,7 +91,7 @@ export default function App() {
     <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:bg-white focus:px-3 focus:py-2">Skip to content</a>
       <header className="py-8">
-        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Build preview, phase 4 of 5</span></p>
+        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Open source, powered by Gemma</span></p>
         <h1 className="mt-3 max-w-3xl font-display text-4xl font-bold leading-[1.05] sm:text-6xl">Pick your retake sections without the clashes.</h1>
         <p className="mt-4 max-w-prose text-ink/75">For IIUC students retaking courses. Add your routine and your retake courses, then see every section combination that fits.</p>
       </header>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
+import { SERVER_DOWN } from '../lib/extract'
 import type { Option } from '../lib/solver'
 import type { ClassRow } from '../types'
 const when = (r: ClassRow) => `${r.course} ${r.section} on ${r.day}, ${r.start} to ${r.end}`
@@ -10,7 +11,7 @@ export default function Explain({ option, alternative }: { option: Option; alter
     try {
       const r = await fetch('/api/v1/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language: lang, label: option.label, alternative, clashes: option.clashes.map((c) => ({ a: when(c.a), b: when(c.b), minutes: c.minutes })) }) })
-        .catch(() => { throw new Error('Cannot reach the Semestra server. Start it with: npm run dev:all') })
+        .catch(() => { throw new Error(SERVER_DOWN) })
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `The server returned an error (${r.status}).`)
       setText(j.text)
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not write an explanation.') } finally { setBusy(false) }

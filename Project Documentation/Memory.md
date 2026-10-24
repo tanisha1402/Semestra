@@ -1,20 +1,26 @@
 # Memory (Semestra)
 Purpose: help IIUC retakers find clash-free section combinations across routine files.
-## Status: Phase 4 done (integration)
-Working: profile + retake chips, file upload/preview (images; PDFs open in new tab), editable row table, weekly timetable (Sat to Thu, 08:00 to 18:00), localStorage persistence under `semestra.v1`, sample data (made-up, labeled).
-Stack: React 18, TS, Vite 5, Tailwind 3, lucide-react. No backend yet.
-Files: `src/App.tsx` (page), `src/components/{RowTable,Timetable}.tsx`, `src/types.ts` (types, `rowOk`, `isRetake`), `src/sample.ts`.
-Run: `npm install`, `npm run dev` (http://127.0.0.1:5173), `npm run build`.
-Assumptions to verify: IIUC week days (Sat to Thu used), time range of routines.
-## Phase 2 added
-Backend `server/index.ts` + `server/extract.ts`: `GET /api/v1/health`, `POST /api/v1/extract` ({image: data URL} to {rows, provider, model}). Zod validation, one retry, errors 400/422/502. Providers by `AI_PROVIDER` (ollama `/api/chat`, gemini `generateContent` with `x-goog-api-key`); no JSON-mode flag sent (unverified for Gemma). Times: 12h or 24h; no AM/PM and hour 1 to 6 is read as PM. Client `src/lib/extract.ts`: images downscaled to 1600px, PDFs rasterized with pdfjs-dist 4.10.38 (first 3 pages), one request per page. Review box in `App.tsx`: rows editable before they join classes.
-Run: `npm run dev:all` (web 5173, api 4000; Vite proxies /api). Tested: build; endpoint against a FAKE Ollama (retry, 400, 422, 502). NOT tested: real Ollama/Gemma output, hosted Gemini call, PDF rasterizing, UI in a browser.
-## Phase 3 added
-`src/lib/solver.ts`: pure `solve(rows, profile)`. Regular = rows not matching a retake code. Per retake course, sections are grouped by course+section; every one-section-per-course combination is checked (cap 5000, else `truncated`). Clash = same day and real overlap (touching times are not clashes), regular vs retake and retake vs retake (different courses). Rank: fewer clashes, fewer overlap minutes, fewer days. Invalid-time rows ignored and counted. Tests: `npm test` (`src/lib/solver.test.ts`). UI: `components/Results.tsx` (ranked list, details for the selected option, "show every section"); the timetable shows regular classes plus the selected option (best by default) with red outlines on clashes.
-## Phase 4 added
-Selected option persisted in `semestra.v1` (`pick`). `src/lib/ics.ts`: weekly RRULE events, floating local time, 16 weeks from next matching weekday (semester dates unknown); `downloadIcs`. `POST /api/v1/explain` + `components/Explain.tsx`: Gemma rewords the solver's clash list in English or Bangla (text only, no JSON mode); labelled as written by Gemma; solver text stays the source of truth; failure shows an error and keeps the details. Skip link, `<main>`, aria-live on the result summary. `npm test` runs solver and ics tests.
-Tested: unit tests, build, `/explain` and `/extract` against a FAKE Ollama (200, 400, 502). NOT tested: real Gemma output (extraction or explanation, incl. Bangla quality), browser UI, .ics import into a real calendar app, keyboard navigation.
-## Next: Phase 5
-Full end-to-end run with a real routine image, fix bugs, README/license/.env.example check, hosted Gemma config and deployment (frontend + API must be deployed together; the Vite proxy is dev-only), Devpost, defense notes.
+## Status: Phase 5 done (release candidate). Not yet deployed or tested with real Gemma.
+Stack: React 18, TS, Vite 5, Tailwind 3, lucide-react; Express 5 + Zod 4; pdfjs-dist (lazy loaded). Persistence: localStorage `semestra.v1`.
+## Files
+`src/App.tsx` page and state. `src/components/{RowTable,Timetable,Results,Explain}.tsx`. `src/lib/{solver,ics,extract}.ts`, `src/types.ts`, `src/sample.ts` (made-up data).
+`server/app.ts` routes, CORS, JSON errors, static `dist/`. `server/extract.ts` prompt, Zod, providers (ollama, gemini), retry, explain. `server/rateLimit.ts` per-IP, in memory. `server/index.ts` listen (0.0.0.0 in production, else 127.0.0.1).
+## Endpoints
+`GET /api/v1/health` (provider, model, configured). `POST /api/v1/extract` {image data URL} to {rows, provider, model}; 400/422/502/429. `POST /api/v1/explain` {language, label, alternative, clashes} to {text}. Rate limit `RATE_LIMIT_MAX` (60 per IP per 10 min) on the two AI routes.
+## Commands
+Dev: `npm run dev:all` (web 5173, api 4000, Vite proxies /api). Checks: `npm test` (solver, ics, server) and `npm run build`. Production: `npm install --include=dev && npm run build`, then `NODE_ENV=production npm start` (one service serves API and page). `render.yaml` is an unverified Render blueprint.
+## Verified in Phase 5 (sandbox)
+Fresh install, `npm run build`, `npm test` all pass. Server tests (real Express, FAKE Ollama): day/time normalisation, image reaches the model, retry once, 422 after two bad answers, 400 on bad input and bad JSON, 404, 502 when Ollama is down, missing Gemini key gives clear 500, rate limit 429 with Retry-After, static serving, security headers. `npm start` in production mode: page, assets and health served; no CORS header for foreign origins.
+## NOT verified (do these before 12:15)
+1. Real Gemma extraction on a real IIUC routine (local `gemma4:e2b` and hosted). Unknown: whether e2b accepts images, Bangla quality, time-format edge cases.
+2. Hosted Gemini call (`generateContent` with `inline_data`) and quota. Gemini request code has never hit the real API.
+3. Browser UI (clicks, responsive layout, keyboard use), PDF rasterizing, .ics import into a calendar app.
+4. Live deployment, HTTPS URL, fresh-browser check. Devpost, repo URL.
+## Release checklist
+[ ] `.env` with real key stays local; set secrets in the host. [ ] Deploy; open `/api/v1/health`, expect `configured: true`. [ ] Upload one real routine image on the live URL; review rows; see ranked options. [ ] Fill README live URL and repo URL. [ ] First commit and history inside the build window (author's responsibility). [ ] Devpost.
 ## Known limits
-No rate limiting. Solver ignores regular-vs-regular clashes. Production needs the API URL wired (not done yet).
+localStorage only. Solver ignores regular-vs-regular clashes and does not use profile semester/section/group. Rate limiter resets on restart. Public AI endpoints with no auth. `.ics` repeats 16 weeks. Sat to Thu week assumed. Hosted free-tier limits unknown. Large bundles: pdf worker 1.4 MB (loaded only for PDFs).
+## Failed or avoided
+No JSON-mode flag for hosted Gemma (unverified); Zod plus retry instead. Never fabricate rows when the model fails; the user types rows by hand.
+## Defense notes
+Why not a chatbot: Gemma does perception (image to rows) and wording; correctness-critical clashes come from tested deterministic code on rows the student confirmed. Data flow: browser downsizes image, server calls the model, server validates with Zod, browser shows rows for review, solver runs in the browser, state stays in localStorage. Security: key server-side only, input size/type validated, per-IP limit, no CORS in production, model output treated as data. Trade-offs: no accounts, in-memory limiter, no semester dates, review step is mandatory because extraction can be wrong. With more time: regular-vs-regular clashes, exam routine, shared routines, persistent rate limiting, real user testing.

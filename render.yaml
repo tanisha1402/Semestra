@@ -1,0 +1,15 @@
+# Optional blueprint for Render.com (one web service: API + built frontend). Not yet verified on a live deploy.
+services:
+  - type: web
+    name: semestra
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - { key: NODE_VERSION, value: "20" }
+      - { key: NODE_ENV, value: production }
+      - { key: AI_PROVIDER, value: gemini }
+      - { key: GEMMA_MODEL, value: gemma-4-26b-a4b-it }
+      - { key: GEMINI_API_KEY, sync: false }
