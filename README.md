@@ -2,7 +2,7 @@
 
 **A retaker picks sections; Semestra finds the clash-free combinations.**
 
-- **Live app:** <[YOUR-VERCEL-URL](https://semestra-eta.vercel.app/)>
+- **Live app:** <[Semestra-VERCEL-URL](https://semestra-eta.vercel.app/)>
 - **Repository:** https://github.com/tanisha1402/Semestra
 - Built for Hacktoberfest Hack Day Chittagong 2026.
 
