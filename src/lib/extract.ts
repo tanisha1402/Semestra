@@ -4,6 +4,8 @@ import type { Cell } from './routine'
 import { uid } from '../types'
 import type { ClassRow } from '../types'
 const MAX = 1600
+// Empty in dev and when the API serves the page (Render). On Vercel, set VITE_API_URL to the Render URL.
+export const API = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 export const SERVER_DOWN = import.meta.env.DEV ? 'Cannot reach the Semestra server. Start it with: npm run dev:all' : 'Cannot reach the Semestra server. Check your connection and try again.'
 const jpeg = (src: CanvasImageSource, w: number, h: number) => {
   const k = Math.min(1, MAX / Math.max(w, h)); const c = document.createElement('canvas')
@@ -38,7 +40,7 @@ export async function extractFromFile(file: File, onProgress: (m: string) => voi
   const rows: ClassRow[] = []; let model = ''
   for (let i = 0; i < imgs.length; i++) {
     onProgress(`Gemma is reading page ${i + 1} of ${imgs.length}. A local model can take a minute.`)
-    const r = await fetch('/api/v1/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: imgs[i] }) })
+    const r = await fetch(`${API}/api/v1/extract`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: imgs[i] }) })
       .catch(() => { throw new Error(SERVER_DOWN) })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || `The server returned an error (${r.status}).`)
