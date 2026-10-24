@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FileImage, FileText, Loader2, Plus, RotateCcw, Sparkles, Upload, X } from 'lucide-react'
+import { FileImage, FileText, Download, Loader2, Plus, RotateCcw, Sparkles, Upload, X } from 'lucide-react'
+import Results from './components/Results'
 import RowTable from './components/RowTable'
+import { downloadIcs } from './lib/ics'
+import { solve } from './lib/solver'
 import Timetable from './components/Timetable'
 import { EMPTY_PROFILE, SAMPLE_PROFILE, SAMPLE_ROWS } from './sample'
-import { extractFromFile } from './lib/extract'
-import { rowOk } from './types'
+import { extractFromFile, routineFromPdf } from './lib/extract'
+import { normCode, pickRows } from './lib/routine'
+import { isRetake, rowOk } from './types'
 import type { ClassRow, Profile } from './types'
 
-interface State { profile: Profile; rows: ClassRow[]; sample: boolean }
+interface State { profile: Profile; rows: ClassRow[]; sample: boolean; pick?: string | null }
 interface UFile { id: string; name: string; url: string; pdf: boolean; file: File }
 const KEY = 'semestra.v1'
 const FIRST: State = { profile: SAMPLE_PROFILE, rows: SAMPLE_ROWS, sample: true }
@@ -27,14 +31,21 @@ const Sec = ({ title, hint, children }: { title: string; hint: string; children:
 )
 
 export default function App() {
-  const [{ profile, rows, sample }, update] = usePersist()
+  const [{ profile, rows, sample, pick = null }, update] = usePersist()
   const setProfile = (p: Profile) => update((s) => ({ ...s, profile: p }))
   const setRows = (r: ClassRow[]) => update((s) => ({ ...s, rows: r }))
   const [draft, setDraft] = useState('')
   const [files, setFiles] = useState<UFile[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  const result = useMemo(() => solve(rows, profile), [rows, profile])
+  const setPick = (id: string) => update((s) => ({ ...s, pick: id }))
+  const [showAll, setShowAll] = useState(false)
+  const active = result.options.find((o) => o.id === pick) ?? result.options[0] ?? null
+  const shown = active && !showAll ? [...rows.filter((r) => !isRetake(r, profile)), ...active.rows] : rows
+  const clashIds = new Set(active && !showAll ? active.clashes.flatMap((c) => [c.a.id, c.b.id]) : [])
   const [pending, setPending] = useState<ClassRow[] | null>(null)
+  const [pendingMode, setPendingMode] = useState<'add' | 'replace'>('add')
   const [busy, setBusy] = useState(false)
   const [exErr, setExErr] = useState('')
   const [note, setNote] = useState('')
@@ -44,13 +55,31 @@ export default function App() {
     try {
       const out = await extractFromFile(current.file, setNote)
       if (!out.rows.length) throw new Error('No classes were found in this file. Try a clearer image, or add rows by hand.')
-      setPending(out.rows); setNote(`Read with ${out.model}. Check every row before adding it.`)
+      setPending(out.rows); setPendingMode('add'); setNote(`Read with ${out.model}. Check every row before adding it.`)
     } catch (e) { setExErr(e instanceof Error ? e.message : 'Extraction failed.'); setNote('') } finally { setBusy(false) }
   }
-  const confirm = () => { if (!pending) return; update((s) => ({ ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...pending] })); setPending(null); setNote('') }
+  const runImport = async () => {
+    if (!current?.pdf) return
+    setBusy(true); setExErr(''); setNote('')
+    try {
+      const cells = await routineFromPdf(current.file, setNote)
+      if (!cells.length) throw new Error('No routine table could be read from this PDF (it may be a scan or a different layout). Add rows by hand instead.')
+      const p = pickRows(cells, profile); const want = `${profile.semester}${profile.section.trim().toUpperCase()}`
+      if (!p.rows.length) throw new Error(`Nothing matched. Looked for column ${want || '?'} and your retake courses. Columns in this file: ${p.columns.join(', ')}.`)
+      setPending(p.rows); setPendingMode('replace')
+      setNote([p.column ? `Your column ${p.column}: ${p.own} classes.` : `Could not find your column (${want || 'no section set'}). Check semester, section and routine group above. Columns in this file: ${p.columns.join(', ')}.`,
+        profile.retakes.length ? `${p.retake} classes for your retake courses.` : '', p.missing.length ? `Not found in this file: ${p.missing.join(', ')}.` : '', 'Check the rows below, then confirm.'].filter(Boolean).join(' '))
+    } catch (e) { setExErr(e instanceof Error ? e.message : 'Import failed.'); setNote('') } finally { setBusy(false) }
+  }
+  const sig = (r: ClassRow) => [r.course, r.section, r.day, r.start, r.end].map((x) => x.trim().toUpperCase()).join('|')
+  const confirm = () => {
+    if (!pending) return
+    update((s) => { if (pendingMode === 'replace') return { ...s, sample: false, pick: null, rows: pending }; const have = new Set((s.sample ? [] : s.rows).map(sig)); const fresh = pending.filter((r) => !have.has(sig(r))); return { ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...fresh] } })
+    setPending(null); setNote('')
+  }
 
   const addRetake = () => {
-    const c = draft.trim().toUpperCase()
+    const c = normCode(draft)
     if (c && !profile.retakes.includes(c)) setProfile({ ...profile, retakes: [...profile.retakes, c] })
     setDraft('')
   }
@@ -74,11 +103,13 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:bg-white focus:px-3 focus:py-2">Skip to content</a>
       <header className="py-8">
-        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Build preview, phase 2 of 5</span></p>
+        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Open source, powered by Gemma</span></p>
         <h1 className="mt-3 max-w-3xl font-display text-4xl font-bold leading-[1.05] sm:text-6xl">Pick your retake sections without the clashes.</h1>
-        <p className="mt-4 max-w-prose text-ink/75">For IIUC students retaking courses. Add your routine and your retake courses, then see everything on one weekly timetable. Automatic clash finding arrives in phase 3.</p>
+        <p className="mt-4 max-w-prose text-ink/75">For IIUC students retaking courses. Add your routine and your retake courses, then see every section combination that fits.</p>
       </header>
+      <main id="main">
 
       {sample && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-[3px] border border-dashed border-amberink bg-hatch/50 px-4 py-3 text-sm" role="status">
@@ -117,13 +148,15 @@ export default function App() {
         </div>
       </Sec>
 
-      <Sec title="Routine files" hint="Add a photo or PDF of each routine you need: your own semester, and the semesters where your retake courses run. Select a file and let Gemma read it, then check every row before it joins your classes. You can always type rows by hand.">
+      <Sec title="Routine files" hint="Add IIUC's routine PDF for your routine group. It already lists every semester and section, so one file is enough. Semestra picks your own section and every section of your retake courses. Check the rows before they join your classes. You can always type rows by hand.">
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <div>
             <label className="btn-primary cursor-pointer"><Upload size={16} /> Add routine files
               <input type="file" multiple accept="image/*,application/pdf" className="sr-only" onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} /></label>
-            <button className="btn-ghost ml-2" disabled={!current || busy} onClick={runExtract} title={current ? 'Read the selected file with Gemma' : 'Select a file first'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {busy ? 'Reading' : 'Read with Gemma'}</button>
-            <p className="mt-2 text-xs text-ink/60">Pick a file from the list, then read it. PDFs use their first three pages.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {current?.pdf && <button className="btn-primary" disabled={busy} onClick={runImport} title="Pick your section and retake courses out of this routine PDF"><Sparkles size={16} /> Import my classes</button>}
+            </div>
+            <p className="mt-2 text-xs text-ink/60">Select a file. For IIUC's routine PDF use Import: it needs no model and uses your semester, section, routine group and retake codes above.</p>
             {note && <p className="mt-2 text-sm text-ink/80" role="status">{note}</p>}
             {exErr && <p className="mt-2 text-sm text-red-700" role="alert">{exErr} You can still type the rows by hand.</p>}
             {err && <p className="mt-2 text-sm text-red-700" role="alert">{err}</p>}
@@ -141,18 +174,18 @@ export default function App() {
           <div className="min-h-[200px] rounded-[3px] border border-rule bg-white p-2">
             {!current && <p className="p-6 text-sm text-ink/60">Select a file to view it here while you type its rows.</p>}
             {current && !current.pdf && <img src={current.url} alt={`Routine file ${current.name}`} className="max-h-[420px] w-full object-contain" />}
-            {current?.pdf && <div className="p-6 text-sm"><p>PDF preview is not shown here, but Gemma can still read it.</p><a className="mt-2 inline-block font-medium text-teal underline" href={current.url} target="_blank" rel="noreferrer">Open {current.name} in a new tab</a></div>}
+            {current?.pdf && <div className="p-6 text-sm"><p>PDF preview is not shown here.</p><a className="mt-2 inline-block font-medium text-teal underline" href={current.url} target="_blank" rel="noreferrer">Open {current.name} in a new tab</a></div>}
           </div>
         </div>
       </Sec>
 
       {pending && (
         <section className="my-6 rounded-[3px] border-2 border-dashed border-teal bg-white p-5" aria-label="Review extracted rows">
-          <h2 className="font-display text-xl font-bold">Check what Gemma read</h2>
-          <p className="mb-4 mt-1 text-sm text-ink/70">Compare each row with your file above. Fix mistakes or delete wrong rows. Nothing joins your classes until you confirm.</p>
+          <h2 className="font-display text-xl font-bold">{pendingMode === 'replace' ? 'Check what was found in your routine' : 'Check what Gemma read'}</h2>
+          <p className="mb-4 mt-1 text-sm text-ink/70">Compare with your file above. Fix mistakes or delete wrong rows. Nothing joins your classes until you confirm.</p>
           <RowTable rows={pending} setRows={(r) => setPending(r)} profile={profile} />
           <div className="mt-4 flex gap-2">
-            <button className="btn-primary" disabled={!pending.length || pending.some((r) => !rowOk(r))} onClick={confirm}>Add {pending.length} rows to my classes</button>
+            <button className="btn-primary" disabled={!pending.length || pending.some((r) => !rowOk(r))} onClick={confirm}>{pendingMode === 'replace' ? `Use these ${pending.length} classes (replaces current rows)` : `Add ${pending.length} rows to my classes`}</button>
             <button className="btn-ghost" onClick={() => setPending(null)}>Discard</button>
           </div>
         </section>
@@ -171,9 +204,18 @@ export default function App() {
         ) : <RowTable rows={rows} setRows={setRows} profile={profile} />}
       </Sec>
 
-      <Sec title="Your week" hint="Solid blocks are your regular classes. Hatched, dashed blocks are retake courses. Overlapping blocks are clashes. Phase 3 will find clash-free section combinations for you.">
-        <Timetable rows={rows} profile={profile} />
+      <Sec title="Clash-free options" hint="Semestra tries every section combination for your retake courses and checks it against your regular classes and against each other. The results come from the rows you confirmed, not from AI.">
+        <Results result={result} retakeCount={profile.retakes.length} activeId={active?.id ?? null} showAll={showAll} onPick={(id) => { setPick(id); setShowAll(false) }} onShowAll={() => setShowAll(!showAll)} />
       </Sec>
+
+      <Sec title="Your week" hint="Solid blocks are your regular classes. Hatched, dashed blocks are retake courses. Red outlines mark clashes in the option you selected above.">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <button className="btn-primary" disabled={!shown.some(rowOk)} onClick={() => downloadIcs(shown)}><Download size={16} /> Add to my calendar (.ics)</button>
+          <span className="max-w-md text-xs text-ink/60">Repeats weekly for 16 weeks from the next matching day. Change the dates in your calendar app if your semester differs.</span>
+        </div>
+        <Timetable rows={shown} profile={profile} clashIds={clashIds} />
+      </Sec>
+      </main>
     </div>
   )
 }

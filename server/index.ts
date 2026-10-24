@@ -1,18 +1,9 @@
 import 'dotenv/config'
-import cors from 'cors'
-import express from 'express'
-import { z } from 'zod'
-import { ExtractError, config, extract } from './extract'
-const app = express()
-app.use(cors({ origin: [/^http:\/\/(127\.0\.0\.1|localhost):\d+$/] }))
-app.use(express.json({ limit: '15mb' }))
-const Body = z.object({ image: z.string().max(14_000_000).refine((s) => /^data:image\/(png|jpeg|jpg|webp);base64,/.test(s)) })
-app.get('/api/v1/health', (_q, res) => { res.json({ ok: true, ...config() }) })
-app.post('/api/v1/extract', async (req, res) => {
-  const p = Body.safeParse(req.body)
-  if (!p.success) { res.status(400).json({ error: 'Send JSON with an "image" data URL (PNG, JPEG or WebP).' }); return }
-  try { res.json(await extract(p.data.image)) }
-  catch (e) { const s = e instanceof ExtractError ? e.status : 500; res.status(s).json({ error: e instanceof Error ? e.message : 'Extraction failed.' }) }
-})
+import { createApp } from './app'
+import { config } from './extract'
 const port = Number(process.env.PORT) || 4000
-app.listen(port, '127.0.0.1', () => console.log(`Semestra API on http://127.0.0.1:${port} (${config().provider}, ${config().model})`))
+// Hosts need 0.0.0.0 to receive traffic; locally we stay on loopback unless HOST says otherwise.
+const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
+const c = config()
+if (!c.configured) console.warn('WARNING: AI_PROVIDER=gemini but GEMINI_API_KEY is not set. Extraction will fail until it is.')
+createApp().listen(port, host, () => console.log(`Semestra API on http://${host}:${port} (${c.provider}, ${c.model})`))

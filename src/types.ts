@@ -1,6 +1,6 @@
 export const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'] as const
 export type Day = (typeof DAYS)[number]
-export interface ClassRow { id: string; course: string; section: string; day: Day; start: string; end: string; room: string }
+export interface ClassRow { id: string; course: string; section: string; day: Day; start: string; end: string; room: string; teacher?: string }
 export interface Profile { semester: number; section: string; gender: 'male' | 'female'; retakes: string[] }
 export const uid = () => Math.random().toString(36).slice(2, 10)
 export const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
