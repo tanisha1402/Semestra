@@ -1,4 +1,6 @@
 import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { pageData, parsePage } from './routine'
+import type { Cell } from './routine'
 import { uid } from '../types'
 import type { ClassRow } from '../types'
 const MAX = 1600
@@ -8,10 +10,21 @@ const jpeg = (src: CanvasImageSource, w: number, h: number) => {
   c.width = Math.round(w * k); c.height = Math.round(h * k); c.getContext('2d')!.drawImage(src, 0, 0, c.width, c.height)
   return c.toDataURL('image/jpeg', 0.85)
 }
-async function pages(file: File): Promise<string[]> {
-  if (file.type !== 'application/pdf') { const b = await createImageBitmap(file); return [jpeg(b, b.width, b.height)] }
+async function loadPdf() {
   const pdfjs = await import('pdfjs-dist') // loaded only when a PDF is used, keeps the first page load small
   pdfjs.GlobalWorkerOptions.workerSrc = worker
+  return pdfjs
+}
+/** Read a text-based routine PDF directly (no model): every class on every page. */
+export async function routineFromPdf(file: File, onProgress: (m: string) => void): Promise<Cell[]> {
+  const pdfjs = await loadPdf(); const cells: Cell[] = []
+  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise.catch(() => { throw new Error('This file could not be opened as a PDF.') })
+  for (let i = 1; i <= doc.numPages; i++) { onProgress(`Reading page ${i} of ${doc.numPages}`); cells.push(...parsePage(await pageData(pdfjs, await doc.getPage(i))).cells) }
+  return cells
+}
+async function pages(file: File): Promise<string[]> {
+  if (file.type !== 'application/pdf') { const b = await createImageBitmap(file); return [jpeg(b, b.width, b.height)] }
+  const pdfjs = await loadPdf()
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise; const out: string[] = []
   for (let i = 1; i <= Math.min(doc.numPages, 3); i++) {
     const vp = (await doc.getPage(i)).getViewport({ scale: 2 }); const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height

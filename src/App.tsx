@@ -8,7 +8,8 @@ import { downloadIcs } from './lib/ics'
 import { solve } from './lib/solver'
 import Timetable from './components/Timetable'
 import { EMPTY_PROFILE, SAMPLE_PROFILE, SAMPLE_ROWS } from './sample'
-import { extractFromFile } from './lib/extract'
+import { extractFromFile, routineFromPdf } from './lib/extract'
+import { normCode, pickRows } from './lib/routine'
 import { isRetake, rowOk } from './types'
 import type { ClassRow, Profile } from './types'
 
@@ -45,6 +46,7 @@ export default function App() {
   const shown = active && !showAll ? [...rows.filter((r) => !isRetake(r, profile)), ...active.rows] : rows
   const clashIds = new Set(active && !showAll ? active.clashes.flatMap((c) => [c.a.id, c.b.id]) : [])
   const [pending, setPending] = useState<ClassRow[] | null>(null)
+  const [pendingMode, setPendingMode] = useState<'add' | 'replace'>('add')
   const [busy, setBusy] = useState(false)
   const [exErr, setExErr] = useState('')
   const [note, setNote] = useState('')
@@ -54,18 +56,31 @@ export default function App() {
     try {
       const out = await extractFromFile(current.file, setNote)
       if (!out.rows.length) throw new Error('No classes were found in this file. Try a clearer image, or add rows by hand.')
-      setPending(out.rows); setNote(`Read with ${out.model}. Check every row before adding it.`)
+      setPending(out.rows); setPendingMode('add'); setNote(`Read with ${out.model}. Check every row before adding it.`)
     } catch (e) { setExErr(e instanceof Error ? e.message : 'Extraction failed.'); setNote('') } finally { setBusy(false) }
+  }
+  const runImport = async () => {
+    if (!current?.pdf) return
+    setBusy(true); setExErr(''); setNote('')
+    try {
+      const cells = await routineFromPdf(current.file, setNote)
+      if (!cells.length) throw new Error('No routine table could be read from this PDF (it may be a scan or a different layout). Try "Read with Gemma", or add rows by hand.')
+      const p = pickRows(cells, profile); const want = `${profile.semester}${profile.section.trim().toUpperCase()}`
+      if (!p.rows.length) throw new Error(`Nothing matched. Looked for column ${want || '?'} and your retake courses. Columns in this file: ${p.columns.join(', ')}.`)
+      setPending(p.rows); setPendingMode('replace')
+      setNote([p.column ? `Your column ${p.column}: ${p.own} classes.` : `Could not find your column (${want || 'no section set'}). Check semester, section and routine group above. Columns in this file: ${p.columns.join(', ')}.`,
+        profile.retakes.length ? `${p.retake} classes for your retake courses.` : '', p.missing.length ? `Not found in this file: ${p.missing.join(', ')}.` : '', 'Check the rows below, then confirm.'].filter(Boolean).join(' '))
+    } catch (e) { setExErr(e instanceof Error ? e.message : 'Import failed.'); setNote('') } finally { setBusy(false) }
   }
   const sig = (r: ClassRow) => [r.course, r.section, r.day, r.start, r.end].map((x) => x.trim().toUpperCase()).join('|')
   const confirm = () => {
     if (!pending) return
-    update((s) => { const have = new Set((s.sample ? [] : s.rows).map(sig)); const fresh = pending.filter((r) => !have.has(sig(r))); return { ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...fresh] } })
+    update((s) => { if (pendingMode === 'replace') return { ...s, sample: false, pick: null, rows: pending }; const have = new Set((s.sample ? [] : s.rows).map(sig)); const fresh = pending.filter((r) => !have.has(sig(r))); return { ...s, sample: false, rows: s.sample ? pending : [...s.rows, ...fresh] } })
     setPending(null); setNote('')
   }
 
   const addRetake = () => {
-    const c = draft.trim().toUpperCase()
+    const c = normCode(draft)
     if (c && !profile.retakes.includes(c)) setProfile({ ...profile, retakes: [...profile.retakes, c] })
     setDraft('')
   }
@@ -134,13 +149,16 @@ export default function App() {
         </div>
       </Sec>
 
-      <Sec title="Routine files" hint="Add a photo or PDF of each routine you need: your own semester, and the semesters where your retake courses run. Select a file and let Gemma read it, then check every row before it joins your classes. You can always type rows by hand.">
+      <Sec title="Routine files" hint="Add IIUC's routine PDF for your routine group. It already lists every semester and section, so one file is enough. Semestra picks your own section and every section of your retake courses. Check the rows before they join your classes. Photos and scans can be read by Gemma, and you can always type rows by hand.">
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <div>
             <label className="btn-primary cursor-pointer"><Upload size={16} /> Add routine files
               <input type="file" multiple accept="image/*,application/pdf" className="sr-only" onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} /></label>
-            <button className="btn-ghost ml-2" disabled={!current || busy} onClick={runExtract} title={current ? 'Read the selected file with Gemma' : 'Select a file first'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {busy ? 'Reading' : 'Read with Gemma'}</button>
-            <p className="mt-2 text-xs text-ink/60">Pick a file from the list, then read it. PDFs use their first three pages.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {current?.pdf && <button className="btn-primary" disabled={busy} onClick={runImport} title="Pick your section and retake courses out of this routine PDF"><Sparkles size={16} /> Import my classes</button>}
+              <button className="btn-ghost" disabled={!current || busy} onClick={runExtract} title={current ? 'Read the selected file with Gemma' : 'Select a file first'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {busy ? 'Working' : 'Read with Gemma'}</button>
+            </div>
+            <p className="mt-2 text-xs text-ink/60">Select a file. For IIUC's routine PDF use Import: it needs no model and uses your semester, section, routine group and retake codes above. Gemma is for photos and scans.</p>
             {note && <p className="mt-2 text-sm text-ink/80" role="status">{note}</p>}
             {exErr && <p className="mt-2 text-sm text-red-700" role="alert">{exErr} You can still type the rows by hand.</p>}
             {err && <p className="mt-2 text-sm text-red-700" role="alert">{err}</p>}
@@ -165,11 +183,11 @@ export default function App() {
 
       {pending && (
         <section className="my-6 rounded-[3px] border-2 border-dashed border-teal bg-white p-5" aria-label="Review extracted rows">
-          <h2 className="font-display text-xl font-bold">Check what Gemma read</h2>
-          <p className="mb-4 mt-1 text-sm text-ink/70">Compare each row with your file above. Fix mistakes or delete wrong rows. Nothing joins your classes until you confirm.</p>
+          <h2 className="font-display text-xl font-bold">{pendingMode === 'replace' ? 'Check what was found in your routine' : 'Check what Gemma read'}</h2>
+          <p className="mb-4 mt-1 text-sm text-ink/70">Compare with your file above. Fix mistakes or delete wrong rows. Nothing joins your classes until you confirm.</p>
           <RowTable rows={pending} setRows={(r) => setPending(r)} profile={profile} />
           <div className="mt-4 flex gap-2">
-            <button className="btn-primary" disabled={!pending.length || pending.some((r) => !rowOk(r))} onClick={confirm}>Add {pending.length} rows to my classes</button>
+            <button className="btn-primary" disabled={!pending.length || pending.some((r) => !rowOk(r))} onClick={confirm}>{pendingMode === 'replace' ? `Use these ${pending.length} classes (replaces current rows)` : `Add ${pending.length} rows to my classes`}</button>
             <button className="btn-ghost" onClick={() => setPending(null)}>Discard</button>
           </div>
         </section>

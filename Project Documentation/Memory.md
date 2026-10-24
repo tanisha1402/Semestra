@@ -1,6 +1,10 @@
 # Memory (Semestra)
 Purpose: help IIUC retakers find clash-free section combinations across routine files.
-## Status: Phase 5 done (release candidate). Not yet deployed or tested with real Gemma.
+## Status: Phase 5 + routine-PDF import (release candidate). Not yet deployed, not tested with real Gemma or in a browser.
+## Routine PDF import (added after phase 5)
+IIUC publishes ONE PDF per gender: columns = semester+section (`3AF`), one page per day, 50-min slots, merged cells = class length. `src/lib/routine.ts` reads the PDF text layer + cell rectangles with pdf.js (`pageData`, `parsePage`, `pickRows`, `normCode`), no model. UI: select PDF, press "Import my classes" (`routineFromPdf` in `lib/extract.ts`), review table, confirm (replaces current rows). Picks own column `${semester}${section}${F|M}` plus all cells of retake codes (section = column label, e.g. 4AF). `ClassRow.teacher` is optional and shown in review, timetable and results. Gemma stays for images/scans and clash explanations.
+Verified: `npm test` includes `src/lib/routine.test.ts` on the real CSE female Autumn 2026 PDF (`test-data/`): 5 days, 361 classes, 23 columns, 0 unplaced, spot-checked spans, rooms, CSE-2421 sections, solver on top. NOT verified: browser build of pdf.js (tests use the legacy Node build; same API), male routine layout (letter assumed `M`), other departments, scans.
+Trade-off to defend: Gemma is no longer on the main PDF path (the file has a text layer, so exact parsing beats a model). Be ready to say why, and to demo the image/scan path and explanations.
 Stack: React 18, TS, Vite 5, Tailwind 3, lucide-react; Express 5 + Zod 4; pdfjs-dist (lazy loaded). Persistence: localStorage `semestra.v1`.
 ## Files
 `src/App.tsx` page and state. `src/components/{RowTable,Timetable,Results,Explain}.tsx`. `src/lib/{solver,ics,extract}.ts`, `src/types.ts`, `src/sample.ts` (made-up data).

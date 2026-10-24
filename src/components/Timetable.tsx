@@ -27,6 +27,7 @@ export default function Timetable({ rows, profile, clashIds }: { rows: ClassRow[
                   <b>{r.course} {r.section}</b>
                   <div className="tabular-nums">{r.start} to {r.end}</div>
                   {r.room && <div>Room {r.room}</div>}
+                  {r.teacher && <div>{r.teacher}</div>}
                   {rt && <div className="font-semibold">Retake</div>}
                   {clashIds?.has(r.id) && <div className="font-semibold text-red-800">Clash</div>}
                 </div>

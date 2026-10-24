@@ -9,14 +9,15 @@ IIUC retake students choose their own sections for failed courses. The timetable
 - Built for Hacktoberfest Hack Day Chittagong 2026. The problem is based on the author's understanding of how retakes work at IIUC; no user interviews or statistics are claimed.
 
 ## How it works
-1. **Profile:** semester, section, routine group, retake course codes.
-2. **Upload:** photos or PDFs of each routine (PDFs are rasterized in the browser, first 3 pages).
-3. **Gemma reads the table** and returns rows (course, section, day, start, end, room). The server validates them with Zod and retries once if the output is invalid.
-4. **You review:** every row is editable before it joins your classes. Nothing reaches the solver unconfirmed. Rows can also be typed by hand.
-5. **Solver:** plain TypeScript (`src/lib/solver.ts`) tries every one-section-per-course combination, counts overlaps with regular classes and between retake courses, and ranks clash-free options first.
-6. **Result:** ranked options, a weekly timetable, optional Gemma explanation of clashes (English or Bangla), and a `.ics` calendar export.
+IIUC publishes one routine PDF per gender: every semester and section is a column (`3AF` = semester 3, section A, female), one page per day.
+1. **Profile:** semester, section, routine group, retake course codes (`cse 2421` is normalised to `CSE-2421`).
+2. **Upload** that one PDF and press **Import my classes**. Semestra reads the PDF's text layer and cell borders, then picks your own column plus every section of each retake course. No manual typing, no model needed for this step. Each row has course, section (= the column, e.g. `4AF`), day, exact start and end, room and teacher.
+3. **You review:** every row is editable, and nothing joins your classes until you confirm. Rows can also be typed by hand.
+4. **Solver:** plain TypeScript (`src/lib/solver.ts`) tries every one-section-per-course combination, counts overlaps with your regular classes and between retake courses, and ranks clash-free options first.
+5. **Result:** ranked options (with teachers), a weekly timetable, optional Gemma explanation of clashes (English or Bangla), and a `.ics` calendar export.
+6. **Photos and scans:** if the routine is an image or a scanned PDF, **Read with Gemma** extracts rows from it (validated with Zod, one retry), followed by the same review step.
 
-**Division of labour:** Gemma extracts structure from messy images and rewords clash lists. It never decides clashes. The solver is deterministic code, covered by unit tests. Results are advice, not an academic decision; confirm sections with your department.
+**Division of labour:** the PDF parser and the solver are deterministic, tested code. Gemma reads images/scans and rewords clash lists; it never decides clashes. Results are advice, not an academic decision; confirm sections with your department.
 
 ## Open-weight model
 Gemma 4. Local development uses Ollama (`gemma4:e2b`). Production uses hosted Gemma through the Google AI Studio (Gemini) API; the default ID is `gemma-4-26b-a4b-it`. The API key lives only in server environment variables.
@@ -40,7 +41,7 @@ The Express server serves `dist/` and `/api/v1/*` from the same origin, so no CO
 
 ## Structure
 ```
-src/            React app (App.tsx, components/, lib/solver.ts, lib/ics.ts, lib/extract.ts)
+src/            React app (App.tsx, components/, lib/routine.ts PDF parser, lib/solver.ts, lib/ics.ts, lib/extract.ts)
 server/         Express API (app.ts routes, extract.ts model calls + Zod, rateLimit.ts, index.ts)
 Project Documentation/   PRD.md, Memory.md
 ```
@@ -48,7 +49,7 @@ API: `GET /api/v1/health`, `POST /api/v1/extract` (image data URL to rows), `POS
 
 ## Known limitations
 - Data is stored in your browser only (localStorage). No accounts, nothing shared between devices.
-- Extraction quality depends on the image and model; always review. Bangla and low-resolution tables are the hardest.
+- PDF import depends on IIUC's current layout (column headers like `3AF`, one page per day, 50-minute slots). Only the CSE female Autumn 2026 file has been tested; the male file and other departments are untested. Gemma extraction from photos depends on image quality and the model; always review.
 - The solver ignores regular-vs-regular clashes and does not use the profile's semester/section/group (they are for your reference).
 - No exam schedules. `.ics` events repeat weekly for 16 weeks because semester dates are unknown.
 - No auth, so the AI endpoints are public with a basic rate limit. The rate limiter is in memory and resets on restart.
@@ -58,6 +59,7 @@ API: `GET /api/v1/health`, `POST /api/v1/extract` (image data URL to rows), `POS
 Written with the help of Claude (Anthropic) as an AI coding assistant, and reviewed and run by the author. At runtime the app uses Gemma 4 only.
 
 ## Attribution
+The tested sample in `test-data/` is the CSE Department's public Autumn 2026 female class routine from IIUC, included only as a test fixture.
 React, Vite, Tailwind CSS, Lucide icons, Express, Zod, pdf.js (pdfjs-dist), tsx. All under their own open-source licenses. Sample timetable data is made up.
 
 ## License
