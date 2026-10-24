@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FileImage, FileText, Loader2, Plus, RotateCcw, Sparkles, Upload, X } from 'lucide-react'
+import { FileImage, FileText, Download, Loader2, Plus, RotateCcw, Sparkles, Upload, X } from 'lucide-react'
+import Explain from './components/Explain'
+import Results from './components/Results'
 import RowTable from './components/RowTable'
+import { downloadIcs } from './lib/ics'
+import { solve } from './lib/solver'
 import Timetable from './components/Timetable'
 import { EMPTY_PROFILE, SAMPLE_PROFILE, SAMPLE_ROWS } from './sample'
 import { extractFromFile } from './lib/extract'
-import { rowOk } from './types'
+import { isRetake, rowOk } from './types'
 import type { ClassRow, Profile } from './types'
 
-interface State { profile: Profile; rows: ClassRow[]; sample: boolean }
+interface State { profile: Profile; rows: ClassRow[]; sample: boolean; pick?: string | null }
 interface UFile { id: string; name: string; url: string; pdf: boolean; file: File }
 const KEY = 'semestra.v1'
 const FIRST: State = { profile: SAMPLE_PROFILE, rows: SAMPLE_ROWS, sample: true }
@@ -27,13 +31,19 @@ const Sec = ({ title, hint, children }: { title: string; hint: string; children:
 )
 
 export default function App() {
-  const [{ profile, rows, sample }, update] = usePersist()
+  const [{ profile, rows, sample, pick = null }, update] = usePersist()
   const setProfile = (p: Profile) => update((s) => ({ ...s, profile: p }))
   const setRows = (r: ClassRow[]) => update((s) => ({ ...s, rows: r }))
   const [draft, setDraft] = useState('')
   const [files, setFiles] = useState<UFile[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  const result = useMemo(() => solve(rows, profile), [rows, profile])
+  const setPick = (id: string) => update((s) => ({ ...s, pick: id }))
+  const [showAll, setShowAll] = useState(false)
+  const active = result.options.find((o) => o.id === pick) ?? result.options[0] ?? null
+  const shown = active && !showAll ? [...rows.filter((r) => !isRetake(r, profile)), ...active.rows] : rows
+  const clashIds = new Set(active && !showAll ? active.clashes.flatMap((c) => [c.a.id, c.b.id]) : [])
   const [pending, setPending] = useState<ClassRow[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [exErr, setExErr] = useState('')
@@ -74,11 +84,13 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:bg-white focus:px-3 focus:py-2">Skip to content</a>
       <header className="py-8">
-        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Build preview, phase 2 of 5</span></p>
+        <p className="font-display text-sm font-bold text-teal">Semestra <span className="ml-2 font-sans font-normal text-ink/60">Build preview, phase 4 of 5</span></p>
         <h1 className="mt-3 max-w-3xl font-display text-4xl font-bold leading-[1.05] sm:text-6xl">Pick your retake sections without the clashes.</h1>
-        <p className="mt-4 max-w-prose text-ink/75">For IIUC students retaking courses. Add your routine and your retake courses, then see everything on one weekly timetable. Automatic clash finding arrives in phase 3.</p>
+        <p className="mt-4 max-w-prose text-ink/75">For IIUC students retaking courses. Add your routine and your retake courses, then see every section combination that fits.</p>
       </header>
+      <main id="main">
 
       {sample && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-[3px] border border-dashed border-amberink bg-hatch/50 px-4 py-3 text-sm" role="status">
@@ -171,9 +183,19 @@ export default function App() {
         ) : <RowTable rows={rows} setRows={setRows} profile={profile} />}
       </Sec>
 
-      <Sec title="Your week" hint="Solid blocks are your regular classes. Hatched, dashed blocks are retake courses. Overlapping blocks are clashes. Phase 3 will find clash-free section combinations for you.">
-        <Timetable rows={rows} profile={profile} />
+      <Sec title="Clash-free options" hint="Semestra tries every section combination for your retake courses and checks it against your regular classes and against each other. The results come from the rows you confirmed, not from AI.">
+        <Results result={result} retakeCount={profile.retakes.length} activeId={active?.id ?? null} showAll={showAll} onPick={(id) => { setPick(id); setShowAll(false) }} onShowAll={() => setShowAll(!showAll)} />
+        {active && !showAll && active.clashes.length > 0 && <Explain key={active.id} option={active} alternative={result.options.find((o) => o.clashes.length === 0)?.label ?? null} />}
       </Sec>
+
+      <Sec title="Your week" hint="Solid blocks are your regular classes. Hatched, dashed blocks are retake courses. Red outlines mark clashes in the option you selected above.">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <button className="btn-primary" disabled={!shown.some(rowOk)} onClick={() => downloadIcs(shown)}><Download size={16} /> Add to my calendar (.ics)</button>
+          <span className="max-w-md text-xs text-ink/60">Repeats weekly for 16 weeks from the next matching day. Change the dates in your calendar app if your semester differs.</span>
+        </div>
+        <Timetable rows={shown} profile={profile} clashIds={clashIds} />
+      </Sec>
+      </main>
     </div>
   )
 }

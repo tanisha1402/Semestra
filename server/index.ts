@@ -2,7 +2,7 @@ import 'dotenv/config'
 import cors from 'cors'
 import express from 'express'
 import { z } from 'zod'
-import { ExtractError, config, extract } from './extract'
+import { ExplainBody, ExtractError, config, explain, extract } from './extract'
 const app = express()
 app.use(cors({ origin: [/^http:\/\/(127\.0\.0\.1|localhost):\d+$/] }))
 app.use(express.json({ limit: '15mb' }))
@@ -13,6 +13,12 @@ app.post('/api/v1/extract', async (req, res) => {
   if (!p.success) { res.status(400).json({ error: 'Send JSON with an "image" data URL (PNG, JPEG or WebP).' }); return }
   try { res.json(await extract(p.data.image)) }
   catch (e) { const s = e instanceof ExtractError ? e.status : 500; res.status(s).json({ error: e instanceof Error ? e.message : 'Extraction failed.' }) }
+})
+app.post('/api/v1/explain', async (req, res) => {
+  const p = ExplainBody.safeParse(req.body)
+  if (!p.success) { res.status(400).json({ error: 'Send language, label, alternative and a list of clashes.' }); return }
+  try { res.json(await explain(p.data)) }
+  catch (e) { const s = e instanceof ExtractError ? e.status : 500; res.status(s).json({ error: e instanceof Error ? e.message : 'Explanation failed.' }) }
 })
 const port = Number(process.env.PORT) || 4000
 app.listen(port, '127.0.0.1', () => console.log(`Semestra API on http://127.0.0.1:${port} (${config().provider}, ${config().model})`))
