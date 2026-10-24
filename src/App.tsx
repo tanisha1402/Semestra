@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { FileImage, FileText, Download, Loader2, Plus, RotateCcw, Sparkles, Upload, X } from 'lucide-react'
-import Explain from './components/Explain'
 import Results from './components/Results'
 import RowTable from './components/RowTable'
 import { downloadIcs } from './lib/ics'
@@ -64,7 +63,7 @@ export default function App() {
     setBusy(true); setExErr(''); setNote('')
     try {
       const cells = await routineFromPdf(current.file, setNote)
-      if (!cells.length) throw new Error('No routine table could be read from this PDF (it may be a scan or a different layout). Try "Read with Gemma", or add rows by hand.')
+      if (!cells.length) throw new Error('No routine table could be read from this PDF (it may be a scan or a different layout). Add rows by hand instead.')
       const p = pickRows(cells, profile); const want = `${profile.semester}${profile.section.trim().toUpperCase()}`
       if (!p.rows.length) throw new Error(`Nothing matched. Looked for column ${want || '?'} and your retake courses. Columns in this file: ${p.columns.join(', ')}.`)
       setPending(p.rows); setPendingMode('replace')
@@ -149,16 +148,15 @@ export default function App() {
         </div>
       </Sec>
 
-      <Sec title="Routine files" hint="Add IIUC's routine PDF for your routine group. It already lists every semester and section, so one file is enough. Semestra picks your own section and every section of your retake courses. Check the rows before they join your classes. Photos and scans can be read by Gemma, and you can always type rows by hand.">
+      <Sec title="Routine files" hint="Add IIUC's routine PDF for your routine group. It already lists every semester and section, so one file is enough. Semestra picks your own section and every section of your retake courses. Check the rows before they join your classes. You can always type rows by hand.">
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <div>
             <label className="btn-primary cursor-pointer"><Upload size={16} /> Add routine files
               <input type="file" multiple accept="image/*,application/pdf" className="sr-only" onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} /></label>
             <div className="mt-2 flex flex-wrap gap-2">
               {current?.pdf && <button className="btn-primary" disabled={busy} onClick={runImport} title="Pick your section and retake courses out of this routine PDF"><Sparkles size={16} /> Import my classes</button>}
-              <button className="btn-ghost" disabled={!current || busy} onClick={runExtract} title={current ? 'Read the selected file with Gemma' : 'Select a file first'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {busy ? 'Working' : 'Read with Gemma'}</button>
             </div>
-            <p className="mt-2 text-xs text-ink/60">Select a file. For IIUC's routine PDF use Import: it needs no model and uses your semester, section, routine group and retake codes above. Gemma is for photos and scans.</p>
+            <p className="mt-2 text-xs text-ink/60">Select a file. For IIUC's routine PDF use Import: it needs no model and uses your semester, section, routine group and retake codes above.</p>
             {note && <p className="mt-2 text-sm text-ink/80" role="status">{note}</p>}
             {exErr && <p className="mt-2 text-sm text-red-700" role="alert">{exErr} You can still type the rows by hand.</p>}
             {err && <p className="mt-2 text-sm text-red-700" role="alert">{err}</p>}
@@ -176,7 +174,7 @@ export default function App() {
           <div className="min-h-[200px] rounded-[3px] border border-rule bg-white p-2">
             {!current && <p className="p-6 text-sm text-ink/60">Select a file to view it here while you type its rows.</p>}
             {current && !current.pdf && <img src={current.url} alt={`Routine file ${current.name}`} className="max-h-[420px] w-full object-contain" />}
-            {current?.pdf && <div className="p-6 text-sm"><p>PDF preview is not shown here, but Gemma can still read it.</p><a className="mt-2 inline-block font-medium text-teal underline" href={current.url} target="_blank" rel="noreferrer">Open {current.name} in a new tab</a></div>}
+            {current?.pdf && <div className="p-6 text-sm"><p>PDF preview is not shown here.</p><a className="mt-2 inline-block font-medium text-teal underline" href={current.url} target="_blank" rel="noreferrer">Open {current.name} in a new tab</a></div>}
           </div>
         </div>
       </Sec>
@@ -208,7 +206,6 @@ export default function App() {
 
       <Sec title="Clash-free options" hint="Semestra tries every section combination for your retake courses and checks it against your regular classes and against each other. The results come from the rows you confirmed, not from AI.">
         <Results result={result} retakeCount={profile.retakes.length} activeId={active?.id ?? null} showAll={showAll} onPick={(id) => { setPick(id); setShowAll(false) }} onShowAll={() => setShowAll(!showAll)} />
-        {active && !showAll && active.clashes.length > 0 && <Explain key={active.id} option={active} alternative={result.options.find((o) => o.clashes.length === 0)?.label ?? null} />}
       </Sec>
 
       <Sec title="Your week" hint="Solid blocks are your regular classes. Hatched, dashed blocks are retake courses. Red outlines mark clashes in the option you selected above.">
